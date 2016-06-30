@@ -19,6 +19,7 @@ if __name__ == "__main__":
     IB_contract.expiry = "201609"
     IB_contract.symbol = "GE"
     IB_contract.exchange = "GLOBEX"
+    print(IB_client_test.get_hist_data(IB_contract))
 
     # close connection
     IB_client_test.eclient.eDisconnect()

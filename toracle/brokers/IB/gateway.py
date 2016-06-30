@@ -4,8 +4,7 @@ Interactive Brokers API wrapper.
 
 import time
 from configparser import ConfigParser
-from swigibpy import EWrapper
-from swigibpy import EPosixClientSocket
+from swigibpy import EWrapper, EPosixClientSocket
 
 # Max wait time
 MAX_WAIT = 30
@@ -61,9 +60,11 @@ class IBWrapper(EWrapper):
             setattr(self, "flag_iserror", True)
             setattr(self, "error_msg", True)
 
-    ## time handling
     def init_time(self):
         setattr(self, "data_time_now", None)
+
+    # ##########################################################
+    # Following virtual functions are defined/declared in IB_API
 
     def currentTime(self, time_from_server):
         setattr(self, "data_time_now", time_from_server)
@@ -85,6 +86,9 @@ class IBClient(object):
         self.cb = callback
 
     def speaking_clock(self):
+        """
+        This function is only for test 1 in testib.py.
+        """
         print("Getting the time... ")
 
         self.eclient.reqCurrentTime()
