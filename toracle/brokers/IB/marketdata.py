@@ -6,6 +6,13 @@ Obtaining, storing and processing historical and real-time market data.
 import pandas as pd
 
 
+# Globals holding data
+# All historical data stored on disk
+# hist_pool to be implemented with a database/storage (NoSql, HDF5)
+# Historical data cache stored in memory for current session
+# hist_cache = pd.DataFrame()
+
+
 class HistData(object):
     """
     Historical market data cache.
@@ -30,6 +37,7 @@ class HistData(object):
         If init_data is empty(None), pool is initialized as an empty DataFrame.
         """
 
+        global hist_cache
         if init_data is None:
             self.pool = pd.DataFrame()
         else:
@@ -62,9 +70,9 @@ class HistData(object):
         no actual meaning (not time series) & may be changed by merging.
         """
         try:
-            pd_to_add = pd.DataFrame(data, columns=data[0]._fields)
+            df_data = pd.DataFrame(data, columns=data[0]._fields)
         except AttributeError:
             print('HistData must be initialized either by empty data,\
             or by a list of named tuples!')
 
-        self.pool.merge(pd_to_add, how='outer')
+        self.pool.merge(df_data, how='outer')

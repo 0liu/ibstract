@@ -3,8 +3,12 @@ Interactive Brokers API wrapper.
 """
 
 import time
+import datetime
 from configparser import ConfigParser
+from collections import namedtuple
+
 from swigibpy import EWrapper, EPosixClientSocket
+from marketdata import HistData
 
 # Max wait time
 MAX_WAIT = 30
@@ -51,17 +55,30 @@ class IBWrapper(EWrapper):
 
         """
 
-        ## Any errors not on this list we just treat as information
-        ERRORS_TO_TRIGGER = [201, 103, 502, 504, 509, 200, 162, 420, 2105, 1100, 478, 201, 399]
+        # Any errors not on this list we just treat as information
+        ERRORS_TO_TRIGGER = [201, 103, 502, 504, 509, 200, 162, 420, 2105,
+                             1100, 478, 201, 399]
 
         if errorCode in ERRORS_TO_TRIGGER:
-            errormsg = "IB error id %d errorcode %d string %s" % (id, errorCode, errorString)
+            errormsg = "IB error id %d errorcode %d string %s"\
+                       % (id, errorCode, errorString)
             print(errormsg)
             setattr(self, "flag_iserror", True)
             setattr(self, "error_msg", True)
 
     def init_time(self):
         setattr(self, "data_time_now", None)
+
+    def init_hist_data(self, req_id):
+        if 'hist_data' not in dir(self):
+            hist_data_dict = []  # dict()  # Initiailize data container dict
+        else:
+            hist_data_dict = self.hist_data
+        # hist_data_dict[req_id] = HistData()  # Initialize data container
+        # Set temporary dict to attribute
+        setattr(self, 'hist_data',  hist_data_dict)
+        # Initialize historica data request finish flag to False
+        setattr(self, 'req_hist_data_done', False)
 
     # ##########################################################
     # Following virtual functions are defined/declared in IB_API
@@ -74,6 +91,33 @@ class IBWrapper(EWrapper):
 
     def managedAccounts(self, openOrderEnd):
         pass
+
+    def historicalData(self, reqId, date, open_price, high, low, close,
+                       volume, barCount, WAP, hasGaps):
+        if date[:8] == 'finished':
+            setattr(self, "req_hist_data_done", True)
+        else:
+            DataTuple = namedtuple('DataTuple',
+                                   'reqId, date, open, high, low, close, vol,\
+                                   barCount, WAP, hasGaps')
+            # data_rcved = DataTuple(date, open_price, high, low, close, volume)
+            # data_rcved = dict()
+            # data_rcved['reqId'] = reqId
+            # data_rcved['date'] = date
+            # data_rcved['open'] = open_price
+            # data_rcved['high'] = high
+            # data_rcved['low'] = low
+            # data_rcved['close'] = close
+            # data_rcved['vol'] = volume
+            # data_rcved['barCount'] = barCount
+            # data_rcved['WAP'] = WAP
+            # data_rcved['hasGaps'] = hasGaps
+            self.hist_data.append(
+                DataTuple(reqId, date, open_price, high, low,
+                          close, volume, barCount, WAP, hasGaps))
+            # hist_data = self.hist_data[reqId]
+            # date = datetime.datetime.strptime(date, "%Y%m%d")
+            # hist_data.add_data([data_rcved, ])
 
 
 class IBClient(object):
@@ -106,11 +150,51 @@ class IBClient(object):
             iserror = self.cb.flag_iserror
 
             if (time.time() - start_time) > MAX_WAIT:
-                finished = True
+                iserror = True
 
             if iserror:
                 print("Error happened")
                 print(self.cb.error_msg)
-                finished = True
 
         return self.cb.data_time_now
+
+    def req_hist_data(self, contract, durationStr='1 w',
+                      barSizeSetting='1 day', req_id=9999):
+        """
+        Request historical data for a contract, up to today.
+
+        Keyword Arguments:
+        contract -- IB contract defined in API.
+        duration -- (default '1 Y')
+        bar_size -- (default '1 day')
+        req_id -- (default MEANINGLESS_NUMBER)
+        """
+
+        self.cb.init_error()
+        self.cb.init_hist_data(req_id)
+
+        # time_now = datetime.datetime.now()
+        # time_now_str = time_now.strftime("%Y%m%d %H:%M:%S %Z")
+        time_now_str = "20000725 13:00:00"
+
+        # call EClientSocket function to request historical data
+        self.eclient.reqHistoricalData(req_id, contract, time_now_str,
+                                       durationStr, barSizeSetting,
+                                       'Trades', 1, 1, None)
+
+        # Loop to check if request finished
+        start_time = time.time()
+        finished = False
+        iserror = False
+        while not (finished or iserror):
+            finished = self.cb.req_hist_data_done
+            iserror = self.cb.flag_iserror
+            if(time.time() - start_time) > MAX_WAIT:
+                iserror = True
+            pass
+
+        if iserror:
+            print(self.cb.error_msg)
+            raise Exception("Error requesting historic data.")
+
+        return self.cb.hist_data
