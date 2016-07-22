@@ -4,29 +4,47 @@ Obtaining, storing and processing historical and real-time market data.
 
 
 import pandas as pd
+from collections import namedtuple
+
+
+# check namedtuple instance
+def isnamedtuple(x):
+    """Check if x is a namedtuple.
+    :rtype: Boolean.
+    """
+    return all((type(x).__bases__[0] is tuple,
+                len(type(x).__bases__) == 1,
+                isinstance(getattr(x, '_fields', None), tuple)))
 
 
 class MarketData(object):
     """
-    Market data class.
-    Orgainzed based on Pandas dataframe.
+    Market data cache, for either historical or real-time data.
 
-    self._depot stores all the historical data in Pandas DataFrame format,
-    with a pre-defined MultiIndex ['Ticker', 'DateTime',].
+    There could be multiple MarketData objects for different purposes, such
+    as monitoring real-time prices, retrieving historical data, research,
+    modeling, etc. These cache objects can connect to a common database.
+
+    self._depot stores data in Pandas DataFrame format, with pre-defined
+    MultiIndex format:
+        ['Ticker', 'Interval', 'DateTime']
+        'Ticker': string.
+        'Interval': pandas Timedelta.
+        'DateTime': pandas DatetimeIndex.
     """
 
     def __init__(self, data=None):
         """
-        Costruct HistData object and initialize data pool.
-        data: a list of named tuples, whose field_names are data names
-                   (ticker, date, price, etc.), which then merge to DataFrame
-                   column names.
-            Example:
-                   Price = namedtuple('Price', 'ticker date price')
-                   init_data = [
-                                Price('GE', '2010-01-01', 30.00)
-                                Price('GE', '2010-01-02', 31.00)
-                   ]
+        Initialize private data _depot.
+        data: a list of namedtuples, whose _fields are data names, for example,
+        ('Ticker', 'DateTime', 'Price').
+        
+        Example:
+        Price = namedtuple('Price', 'Ticker DateTime Price Volume')
+        data = [
+                Price('FB', '2016-07-21', 30.00)
+                Price('FB', '2016-07-22', 31.00)
+        ]
         If init_data is empty(None), pool is initialized as an empty DataFrame.
         """
 
@@ -74,17 +92,32 @@ class MarketData(object):
         self._depot.merge(data, how='outer')
 
 
-# import pandas as pd
-# from collections import namedtuple
+def main():
+    """Unit test main function.
+    :returns: None
+    :rtype: None
+    """
+    DataItem = namedtuple('DataItem', 'Ticker Interval DateTime Price Volume')
+    # intvl = pd.Timedelta('5 min')
+    mkt_data = [
+        DataItem('FB', '5 min', '2016-07-21 09:30:00', 120.05, 234242),
+        DataItem('FB', '5 min', '2016-07-21 09:35:00', 120.32, 410842),
+        DataItem('FB', '1 min', '2016-07-25 09:40:00', 120.47, 579638),
+        DataItem('FB', '1 min', '2016-07-25 09:41:00', 120.82, 192476),
+        DataItem('GS', '5 min', '2016-07-12 10:35:00', 140.05, 39832),
+        DataItem('GS', '5 min', '2016-07-12 11:20:00', 141.34, 19468),
+        DataItem('AMZN', '1 day', '2016-07-21', 749.22, 27917),
+        DataItem('AMZN', '1 day', '2016-07-22', 738.87, 36662),
+        DataItem('AMZN', '1 day', '2016-07-23', 727.23, 8766),
+    ]
+
+    global mkt_data_df
+    mkt_data_df = pd.DataFrame(mkt_data, columns=mkt_data[0]._fields)
+    mkt_data_df['Interval'] = pd.TimedeltaIndex(mkt_data_df['Interval'])
+    mkt_data_df['DateTime'] = pd.DatetimeIndex(mkt_data_df['DateTime'])
+# mkt_data_df.set_index(['Ticker', 'Interval', 'DateTime'],
+                          # inplace=True)
 
 
-# HistData = namedtuple('Price', 'Ticker DateTime Price')
-# a = Price('GE', pd.to_datetime('2010-01-11').tz_localize('US/Pacific'), 35.00)
-# b = Price('GE', pd.to_datetime('2010-01-12').tz_localize('US/Pacific'), 37.00)
-# l = [a, b]
-# df5 = pd.DataFrame(l, columns=l[0]._fields)
-
-
-# idx=pd.MultiIndex(levels=[[],[]],labels=[[],[]],names=['symbol','date'])
-
-# check if df6.index.names==idx.names
+if __name__ == '__main__':
+    main()
