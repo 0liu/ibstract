@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
 """
-Obtaining, storing and processing historical and real-time market data.
+Market data object and its methods, storing and processing
+historical/real-time market data.
 """
 
 

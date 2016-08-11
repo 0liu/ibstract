@@ -8,7 +8,7 @@ from configparser import ConfigParser
 from collections import namedtuple
 
 from swigibpy import EWrapper, EPosixClientSocket
-from marketdata import HistData
+from marketdata import MarketData
 
 # Max wait time
 MAX_WAIT = 30
@@ -37,12 +37,12 @@ class IBWrapper(EWrapper):
     EWrapper implementation, which are callbacks passed to IBClient.
 
     """
+    def __init__(self):
+        self.init_error()
+        self.init_time()
+        self.init_hist_data()
 
-    def init_error(self):
-        setattr(self, "flag_iserror", False)
-        setattr(self, "error_msg", "")
-
-    def error(self, id, errorCode, errorString):
+    def error(self, errorid, errorCode, errorString):
         """
         error handling, simple for now
 
@@ -61,63 +61,47 @@ class IBWrapper(EWrapper):
 
         if errorCode in ERRORS_TO_TRIGGER:
             errormsg = "IB error id %d errorcode %d string %s"\
-                       % (id, errorCode, errorString)
-            print(errormsg)
-            setattr(self, "flag_iserror", True)
-            setattr(self, "error_msg", True)
+                       % (errorid, errorCode, errorString)
+            self.flag_iserror = True
+            self.error_msg = errormsg
+
+    def init_error(self):
+        self.flag_iserror = False
+        self.error_msg = ""
+
+        # init historical data related attributes
+        self.req_hist_data_done = False
 
     def init_time(self):
-        setattr(self, "data_time_now", None)
+        self.date_time_now = None
 
     def init_hist_data(self, req_id):
-        if 'hist_data' not in dir(self):
-            hist_data_dict = []  # dict()  # Initiailize data container dict
-        else:
-            hist_data_dict = self.hist_data
-        # hist_data_dict[req_id] = HistData()  # Initialize data container
-        # Set temporary dict to attribute
-        setattr(self, 'hist_data',  hist_data_dict)
-        # Initialize historica data request finish flag to False
-        setattr(self, 'req_hist_data_done', False)
+        self.req_hist_data_done = False
+        self.hist_data_buf = None
 
     # ##########################################################
     # Following virtual functions are defined/declared in IB_API
 
     def currentTime(self, time_from_server):
-        setattr(self, "data_time_now", time_from_server)
+        self.data_time_now = time_from_server
+
+    def historicalData(self, reqId, date, open_price, high, low, close,
+                       volume, barCount, WAP, hasGaps):
+        if date[:8] == 'finished':
+            self.req_hist_data_done = True
+        else:
+            DataTuple = namedtuple('DataTuple',
+                                   'DateTime, Open, High, Low, Close, Volume,\
+                                   BarCount, WAP, HasGaps')
+            self.hist_data = DataTuple(date, open_price, high, low,
+                                       close, volume, barCount, WAP, hasGaps)
+            # hist_data.add_data([data_rcved, ])
 
     def nextValidId(self, orderId):
         pass
 
     def managedAccounts(self, openOrderEnd):
         pass
-
-    def historicalData(self, reqId, date, open_price, high, low, close,
-                       volume, barCount, WAP, hasGaps):
-        if date[:8] == 'finished':
-            setattr(self, "req_hist_data_done", True)
-        else:
-            DataTuple = namedtuple('DataTuple',
-                                   'reqId, date, open, high, low, close, vol,\
-                                   barCount, WAP, hasGaps')
-            # data_rcved = DataTuple(date, open_price, high, low, close, volume)
-            # data_rcved = dict()
-            # data_rcved['reqId'] = reqId
-            # data_rcved['date'] = date
-            # data_rcved['open'] = open_price
-            # data_rcved['high'] = high
-            # data_rcved['low'] = low
-            # data_rcved['close'] = close
-            # data_rcved['vol'] = volume
-            # data_rcved['barCount'] = barCount
-            # data_rcved['WAP'] = WAP
-            # data_rcved['hasGaps'] = hasGaps
-            self.hist_data.append(
-                DataTuple(reqId, date, open_price, high, low,
-                          close, volume, barCount, WAP, hasGaps))
-            # hist_data = self.hist_data[reqId]
-            # date = datetime.datetime.strptime(date, "%Y%m%d")
-            # hist_data.add_data([data_rcved, ])
 
 
 class IBClient(object):
