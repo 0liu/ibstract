@@ -4,17 +4,21 @@ Interactive Brokers API wrapper.
 
 import time
 import datetime
+import random
 from configparser import ConfigParser
 from collections import namedtuple
 
 from swigibpy import EWrapper, EPosixClientSocket
+from swigibpy import Contract as IBContract
+
 from marketdata import MarketData
+
 
 # Max wait time
 MAX_WAIT = 30
 
 
-def read_gateway_config(configfile='gwconfig.ini'):
+def read_gateway_config(configfile='IBconfig.ini'):
     """
     :param
              configfile: Configuration file containing IB Gateway IP, port.
@@ -37,10 +41,9 @@ class IBWrapper(EWrapper):
     EWrapper implementation, which are callbacks passed to IBClient.
 
     """
-    def __init__(self):
-        self.init_error()
-        self.init_time()
-        self.init_hist_data()
+    # def __init__(self):
+    #     super().__init__()
+    #     self.init_error()
 
     def error(self, errorid, errorCode, errorString):
         """
@@ -75,9 +78,10 @@ class IBWrapper(EWrapper):
     def init_time(self):
         self.date_time_now = None
 
-    def init_hist_data(self, req_id):
+    def init_hist_data(self, HistDataTuple):
         self.req_hist_data_done = False
-        self.hist_data_buf = None
+        self.hist_data_buf = MarketData()
+        self.HistDataTuple = HistDataTuple
 
     # ##########################################################
     # Following virtual functions are defined/declared in IB_API
@@ -90,12 +94,9 @@ class IBWrapper(EWrapper):
         if date[:8] == 'finished':
             self.req_hist_data_done = True
         else:
-            DataTuple = namedtuple('DataTuple',
-                                   'DateTime, Open, High, Low, Close, Volume,\
-                                   BarCount, WAP, HasGaps')
-            self.hist_data = DataTuple(date, open_price, high, low,
-                                       close, volume, barCount, WAP, hasGaps)
-            # hist_data.add_data([data_rcved, ])
+            self.hist_data_buf.update(
+                self.HistDataTuple(date, open_price, high, low, close, volume,
+                                   barCount, WAP, hasGaps))
 
     def nextValidId(self, orderId):
         pass
@@ -105,12 +106,19 @@ class IBWrapper(EWrapper):
 
 
 class IBClient(object):
-    def __init__(self, callback, clientid):
+    def __init__(self, callback, clientid=999):
         eclient = EPosixClientSocket(callback)
         host, port = read_gateway_config()
-        eclient.eConnect(host, port, clientid)
 
-        self.eclient = eclient
+        conn_success = eclient.eConnect(host, port, clientid)
+        if conn_success:
+            print("Successfully Connected to IB Gateway {0}:{1}."
+                  .format(host, port))
+        else:
+            raise Exception("Connecting to IB Gateway {0}:{1} failed!".
+                            format(host, port))
+
+        self.ec = eclient
         self.cb = callback
 
     def speaking_clock(self):
@@ -119,7 +127,7 @@ class IBClient(object):
         """
         print("Getting the time... ")
 
-        self.eclient.reqCurrentTime()
+        self.ec.reqCurrentTime()
 
         start_time = time.time()
 
@@ -142,29 +150,80 @@ class IBClient(object):
 
         return self.cb.data_time_now
 
-    def req_hist_data(self, contract, durationStr='1 w',
-                      barSizeSetting='1 day', req_id=9999):
-        """
-        Request historical data for a contract, up to today.
+    def make_contract(self, security_type, symbol,
+                      put_call='CALL', strike=0.0,
+                      expiry='20160721', multiplier='10',
+                      exchange='SMART', currency='USD'):
+        """Make IB contract from input security parameters.
 
-        Keyword Arguments:
-        contract -- IB contract defined in API.
-        duration -- (default '1 Y')
-        bar_size -- (default '1 day')
-        req_id -- (default MEANINGLESS_NUMBER)
+        :param security_type: 'STK','OPT','FUT','IND','FOP','CASH','BAG','NEWS'
+        :param symbol: ticker symbol.
+        :param put_call: 'CALL','PUT','C','P'
+        :param strike: double. Option strike price.
+        :param expiry: 'YYYYMM'. Futures expiration date.
+        :param multiplier: Futures or options multipler. Only necessary when
+                           multiple possibilities exist.
+        :param exchange: 'SMART',etc.
+        :param currency: 'USD',etc.
+        :returns: An IB contract object for query contract details or
+                  historical data.
+        :rtype: swigibpy::Contract class.
+
+        """
+
+        contract = IBContract()
+        contract.secType = security_type
+        contract.symbol = symbol
+        contract.exchange = exchange
+        contract.currency = currency
+        contract.right = put_call
+        contract.expiry = expiry
+        contract.multiplier = multiplier
+        contract.conId = random.randint(1001, 2000)
+        return contract
+
+    def req_hist_data(self, req_contract, req_endtime, req_len='1 w',
+                      req_barsize='1 day', req_datatype='TRADES', useRTH=1):
+        """Wrapper of IB API EClientSocket::reqHistoricalData().
+        :param req_contract: An IB contract describing the requested security.
+        :param req_endtime: endDateTime in IB API. String.
+                            The end of requested time duration.
+                            Format: "yyyymmdd HH:mm:ss ttt".
+                            ttt, opt. time zone: GMT,EST,PST,MST,AST,JST,AET.
+        :param req_len: durationStr in IB API. Time duration of data.
+        :param req_barsize: barSizeSetting in IB API. String. Time resolution.
+                            1/5/15/30 secs, 1/2/3/5/15/30 mins, 1 hour, 1 day.
+        :param req_datatype: whatToShow in IB API. Requested data type.
+                             "TRADES","MIDPOINT","BID", "ASK","BID_ASK",
+                             "HISTORICAL_VOLATILITY",
+                             "OPTION_IMPLIED_VOLATILITY".
+        :param useRTH: Use regular trading hours. Whether to return all data
+                       available during the requested time span, or only data
+                       that falls within regular trading hours.
+        :returns: Historical data in a single request.
+        :rtype: A namedtuple defined in IBWrapper::historicalData().
         """
 
         self.cb.init_error()
-        self.cb.init_hist_data(req_id)
 
-        # time_now = datetime.datetime.now()
-        # time_now_str = time_now.strftime("%Y%m%d %H:%M:%S %Z")
-        time_now_str = "20000725 13:00:00"
+        # Initalize data buffer and a namedtuple type for receiving data
+        if req_datatype.upper() == 'TRADES':
+            HistDataTuple = namedtuple('HistDataTuple',
+                                       'DateTime, Open, High, Low, Close,'
+                                       'Volume, BarCount, WAP, HasGaps')
+        else:
+            HistDataTuple = namedtuple('HistDataTuple',
+                                       'DateTime, Open, High, Low, Close,'
+                                       'Volume, BarCount, WAP, HasGaps')
+        self.cb.init_hist_data(HistDataTuple)
+
+        # Generate a random request Id in the range of [100,1000]
+        req_id = random.randint(2000, 3000)
 
         # call EClientSocket function to request historical data
-        self.eclient.reqHistoricalData(req_id, contract, time_now_str,
-                                       durationStr, barSizeSetting,
-                                       'Trades', 1, 1, None)
+        self.ec.reqHistoricalData(req_id, req_contract, req_endtime,
+                                       req_len, req_barsize, req_datatype,
+                                       useRTH, 1, None)
 
         # Loop to check if request finished
         start_time = time.time()
@@ -182,3 +241,33 @@ class IBClient(object):
             raise Exception("Error requesting historic data.")
 
         return self.cb.hist_data
+
+
+if __name__ == "__main__":
+    import pdb
+    import sys
+    # pdb.set_trace()
+    IB_wrapper = IBWrapper()
+    IB_client_test = IBClient(IB_wrapper)
+
+    # test 1
+    if (not sys.argv[1:]) or (int(sys.argv[1]) == 1):
+        print(IB_client_test.speaking_clock())
+
+    # test 2
+    if (not sys.argv[1:]) or (int(sys.argv[1]) == 2):
+        security_type = 'STK'
+        symbol = 'FB'
+        req_endtime = '20160812 16:00:00 EST'
+        req_len = '1 w'
+        req_barsize = '1 day'
+        req_datatype = 'TRADES'
+
+        req_contract = IB_client_test.make_contract(
+            security_type, symbol)
+        hist_data = IB_client_test.req_hist_data(
+            req_contract, req_endtime, req_len, req_barsize, req_datatype)
+        print(hist_data)
+
+    # close connection
+    IB_client_test.ec.eDisconnect()
