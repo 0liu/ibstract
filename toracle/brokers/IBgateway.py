@@ -4,18 +4,19 @@ Interactive Brokers API wrapper.
 
 import time
 import datetime
+import re
 import random
 from configparser import ConfigParser
-from collections import namedtuple
+from collections import namedtuple, OrderedDict
 
 from swigibpy import EWrapper, EPosixClientSocket
 from swigibpy import Contract as IBContract
 
-from marketdata import MarketData
+from marketdata import timedur_to_std
 
 
 # Max wait time
-MAX_WAIT = 30
+MAX_WAIT = 5
 
 
 def read_gateway_config(configfile='IBconfig.ini'):
@@ -35,15 +36,67 @@ def read_gateway_config(configfile='IBconfig.ini'):
     return gwdefault['host'], int(gwdefault['port'])
 
 
+def barsize_to_IB(barsize):
+    """Convert bar size string to IB style and check validility.
+
+    :param barsize: bar size in market data.
+    :returns: IB-style bar size string.
+    :rtype: string
+
+    """
+    bs = timedur_to_std(barsize)
+    IB_barsize_map = {
+        '1s': '1 secs',
+        '5s': '5 secs',
+        '10s': '10 secs',
+        '15s': '15 secs',
+        '30s': '30 secs',
+        '1m': '1 min',
+        '2m': '2 mins',
+        '3m': '3 mins',
+        '5m': '5 mins',
+        '10m': '10 mins',
+        '15m': '15 mins',
+        '20m': '20 mins',
+        '30m': '30 mins',
+        '1h': '1 hour',
+        '2h': '2 hours',
+        '3h': '3 hours',
+        '4h': '4 hours',
+        '8h': '8 hours',
+        '1d': '1 day',
+        '1W': '1W',
+        '1M': '1M'
+    }
+
+    try:
+        bs_IB = IB_barsize_map[bs]
+    except KeyError:
+        print("Error, barsize_to_IB(): Invalid input barsize string!")
+
+    return bs_IB
+
+
+def timedur_to_IB(time_dur_str):
+    tdur = timedur_to_std(time_dur_str)
+    tdur_num = re.findall('\d+', tdur)[0]
+    tdur_unit = tdur[-1]
+    if tdur_unit in ['s', 'd', 'W', 'M', 'Y']:
+        return tdur_num + ' ' + tdur_unit.upper()
+    else:
+        raise Exception(("Error, timedur_to_IB():"
+                         "Invalid time duration string for IB: {} !").
+                        format(time_dur_str))
+
 class IBWrapper(EWrapper):
     """
 
     EWrapper implementation, which are callbacks passed to IBClient.
 
     """
-    # def __init__(self):
-    #     super().__init__()
-    #     self.init_error()
+    def __init__(self):
+        super().__init__()
+        self.init_error()
 
     def error(self, errorid, errorCode, errorString):
         """
@@ -78,25 +131,23 @@ class IBWrapper(EWrapper):
     def init_time(self):
         self.date_time_now = None
 
-    def init_hist_data(self, HistDataTuple):
+    def init_hist_data(self):
         self.req_hist_data_done = False
-        self.hist_data_buf = MarketData()
-        self.HistDataTuple = HistDataTuple
+        self.hist_data_buf = []
 
     # ##########################################################
     # Following virtual functions are defined/declared in IB_API
 
     def currentTime(self, time_from_server):
-        self.data_time_now = time_from_server
+        self.date_time_now = time_from_server
 
     def historicalData(self, reqId, date, open_price, high, low, close,
                        volume, barCount, WAP, hasGaps):
         if date[:8] == 'finished':
             self.req_hist_data_done = True
         else:
-            self.hist_data_buf.update(
-                self.HistDataTuple(date, open_price, high, low, close, volume,
-                                   barCount, WAP, hasGaps))
+            self.hist_data_buf.append((date, open_price, high, low, close,
+                                       volume, barCount, WAP, hasGaps))
 
     def nextValidId(self, orderId):
         pass
@@ -138,7 +189,7 @@ class IBClient(object):
         finished = False
 
         while not (finished or iserror):
-            finished = self.cb.data_time_now is not None
+            finished = self.cb.date_time_now is not None
             iserror = self.cb.flag_iserror
 
             if (time.time() - start_time) > MAX_WAIT:
@@ -148,7 +199,7 @@ class IBClient(object):
                 print("Error happened")
                 print(self.cb.error_msg)
 
-        return self.cb.data_time_now
+        return self.cb.date_time_now
 
     def make_contract(self, security_type, symbol,
                       put_call='CALL', strike=0.0,
@@ -179,7 +230,7 @@ class IBClient(object):
         contract.right = put_call
         contract.expiry = expiry
         contract.multiplier = multiplier
-        contract.conId = random.randint(1001, 2000)
+        # contract.conId = random.randint(1001, 2000)
         return contract
 
     def req_hist_data(self, req_contract, req_endtime, req_len='1 w',
@@ -192,7 +243,6 @@ class IBClient(object):
                             ttt, opt. time zone: GMT,EST,PST,MST,AST,JST,AET.
         :param req_len: durationStr in IB API. Time duration of data.
         :param req_barsize: barSizeSetting in IB API. String. Time resolution.
-                            1/5/15/30 secs, 1/2/3/5/15/30 mins, 1 hour, 1 day.
         :param req_datatype: whatToShow in IB API. Requested data type.
                              "TRADES","MIDPOINT","BID", "ASK","BID_ASK",
                              "HISTORICAL_VOLATILITY",
@@ -205,25 +255,25 @@ class IBClient(object):
         """
 
         self.cb.init_error()
-
-        # Initalize data buffer and a namedtuple type for receiving data
-        if req_datatype.upper() == 'TRADES':
-            HistDataTuple = namedtuple('HistDataTuple',
-                                       'DateTime, Open, High, Low, Close,'
-                                       'Volume, BarCount, WAP, HasGaps')
-        else:
-            HistDataTuple = namedtuple('HistDataTuple',
-                                       'DateTime, Open, High, Low, Close,'
-                                       'Volume, BarCount, WAP, HasGaps')
-        self.cb.init_hist_data(HistDataTuple)
+        self.cb.init_hist_data()
 
         # Generate a random request Id in the range of [100,1000]
         req_id = random.randint(2000, 3000)
 
+        # Convert input strings to IB style
+        IB_barsize = barsize_to_IB(req_barsize)
+        IB_duration = timedur_to_IB(req_len)
+        IB_whattoshow = req_datatype.upper()
+        if IB_whattoshow not in ("TRADES", "MIDPOINT", "BID", "ASK", "BID_ASK",
+                                 "HISTORICAL_VOLATILITY",
+                                 "OPTION_IMPLIED_VOLATILITY"):
+            raise Exception("Invalid requested IB data type: {} !".
+                            format(req_datatype))
+
         # call EClientSocket function to request historical data
         self.ec.reqHistoricalData(req_id, req_contract, req_endtime,
-                                       req_len, req_barsize, req_datatype,
-                                       useRTH, 1, None)
+                                  IB_duration, IB_barsize, IB_whattoshow,
+                                  useRTH, 1, None)
 
         # Loop to check if request finished
         start_time = time.time()
@@ -235,18 +285,26 @@ class IBClient(object):
             if(time.time() - start_time) > MAX_WAIT:
                 iserror = True
             pass
-
         if iserror:
             print(self.cb.error_msg)
-            raise Exception("Error requesting historic data.")
+            raise Exception("Error requesting historic data!")
 
-        return self.cb.hist_data
+        # Add symbol and BarSize, and convert data to a list of namedtuples
+        DataRow = namedtuple('HistDataTuple',
+                             'Symbol, BarSize,'
+                             'DateTime, Open, High, Low, Close,'
+                             'Volume, BarCount, WAP, HasGaps')
+        hist_data = []
+        for data in self.cb.hist_data_buf:
+            hist_data.append(DataRow(
+                *((req_contract.symbol, req_barsize) + data)))
+
+        return hist_data
 
 
 if __name__ == "__main__":
-    import pdb
     import sys
-    # pdb.set_trace()
+    from marketdata import MarketData
     IB_wrapper = IBWrapper()
     IB_client_test = IBClient(IB_wrapper)
 
@@ -258,16 +316,17 @@ if __name__ == "__main__":
     if (not sys.argv[1:]) or (int(sys.argv[1]) == 2):
         security_type = 'STK'
         symbol = 'FB'
-        req_endtime = '20160812 16:00:00 EST'
-        req_len = '1 w'
-        req_barsize = '1 day'
+        req_endtime = '20150817 11:35:00'
+        req_len = '100 s'
+        req_barsize = '5 sec'
         req_datatype = 'TRADES'
 
         req_contract = IB_client_test.make_contract(
             security_type, symbol)
-        hist_data = IB_client_test.req_hist_data(
+        hist_data_list = IB_client_test.req_hist_data(
             req_contract, req_endtime, req_len, req_barsize, req_datatype)
-        print(hist_data)
+        hist_data = MarketData(hist_data_list)
+        print(hist_data.depot)
 
     # close connection
     IB_client_test.ec.eDisconnect()
