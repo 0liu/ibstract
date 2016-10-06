@@ -204,7 +204,7 @@ class IBClient(object):
 
     def make_contract(self, security_type, symbol,
                       put_call='CALL', strike=0.0,
-                      expiry='20160721', multiplier='10',
+                      expiry='20160721', multiplier='1',
                       exchange='SMART', currency='USD'):
         """Make IB contract from input security parameters.
 
@@ -226,11 +226,12 @@ class IBClient(object):
         contract = IBContract()
         contract.secType = security_type
         contract.symbol = symbol
+        contract.right = put_call
+        contract.strike = strike
+        contract.expiry = expiry
+        # contract.multiplier = multiplier  # not working with options
         contract.exchange = exchange
         contract.currency = currency
-        contract.right = put_call
-        contract.expiry = expiry
-        contract.multiplier = multiplier
         # contract.conId = random.randint(1001, 2000)
         return contract
 
@@ -315,15 +316,18 @@ if __name__ == "__main__":
 
     # test 2
     if (not sys.argv[1:]) or (int(sys.argv[1]) == 2):
-        security_type = 'STK'
+        security_type = 'OPT'
         symbol = 'FB'
-        req_endtime = '20150817 11:35:00'
-        req_len = '100 s'
-        req_barsize = '5 sec'
+        put_call = 'CALL'
+        strike = 121
+        expiry = '20161021'
+        req_endtime = '20160920 13:00:00'
+        req_len = '1 day'
+        req_barsize = '5 min'
         req_datatype = 'TRADES'
 
         req_contract = IB_client_test.make_contract(
-            security_type, symbol)
+            security_type, symbol, put_call, strike, expiry)
         hist_data_list = IB_client_test.req_hist_data(
             req_contract, req_endtime, req_len, req_barsize, req_datatype)
         hist_data = MarketData(hist_data_list)
