@@ -136,6 +136,16 @@ class IBWrapper(EWrapper):
         self.req_hist_data_done = False
         self.hist_data_buf = []
 
+    def init_tick_data(self):
+        self.end_tick_data = False
+        self.tick_data_buf = []
+        self.tick_type_dict = {
+            0: 'Bid Size',
+            1: 'Bid Price',
+            2: 'Ask Price',
+            3: 'Ask Size'
+        }
+        
     # ##########################################################
     # Following virtual functions are defined/declared in IB_API
 
@@ -149,6 +159,25 @@ class IBWrapper(EWrapper):
         else:
             self.hist_data_buf.append((date, open_price, high, low, close,
                                        volume, barCount, WAP, hasGaps))
+
+    def tickString(self, tickerId, field, value):
+        tick_type_name = self.tick_type_dict[int(field)]
+        print("tickString():", tick_type_name, value, sep=' ')
+
+    def tickGeneric(self, tickerId, tickType, value):
+        tick_type_name = self.tick_type_dict[int(tickType)]
+        print("tickGeneric():", tick_type_name, value, sep=' ')
+
+    def tickSize(self, tickerId, tickType, size):
+        tick_type_name = self.tick_type_dict[int(tickType)]
+        print("tickSize():", tick_type_name, size, sep=' ')
+
+    def tickPrice(self, tickerId, tickType, price, canAutoExecute):
+        tick_type_name = self.tick_type_dict[int(tickType)]
+        print("tickPrice():", tick_type_name, price, sep=' ')
+
+    def marketDataType(self, reqId, marketDataType):
+        print("marketDataType():", reqId, marketDataType, sep = ' ')
 
     def nextValidId(self, orderId):
         pass
@@ -302,6 +331,36 @@ class IBClient(object):
                 *((req_contract.symbol, req_barsize) + data)))
 
         return hist_data
+
+    def req_mkt_data(self, contract, end_time=None, duration='1 d',
+                     tick_types=['MARK_PRICE',]):
+        """Wrapper of IB API EClientSocket::reqHistoricalData().
+        :param req_contract: An IB contract describing the requested security.
+        :param req_endtime: endDateTime in IB API. String.
+                            The end of requested time duration.
+                            Format: "yyyymmdd HH:mm:ss ttt".
+                            ttt, opt. time zone: GMT,EST,PST,MST,AST,JST,AET.
+        :param req_len: durationStr in IB API. Time duration of data.
+        :param req_barsize: barSizeSetting in IB API. String. Time resolution.
+        :param req_datatype: whatToShow in IB API. Requested data type.
+                             "TRADES","MIDPOINT","BID", "ASK","BID_ASK",
+                             "HISTORICAL_VOLATILITY",
+                             "OPTION_IMPLIED_VOLATILITY".
+        :param useRTH: Use regular trading hours. Whether to return all data
+                       available during the requested time span, or only data
+                       that falls within regular trading hours.
+        :param tick_types:
+                       https://www.interactivebrokers.com/en/software/api/apiguide/tables/generic_tick_types.htm
+                       https://www.interactivebrokers.com/en/software/api/apiguide/tables/tick_types.htm
+        :returns: Historical data in a single request.
+        :rtype: A namedtuple defined in IBWrapper::historicalData().
+        """
+
+        self.cb.init_error()
+        self.cb.init_hist_data()
+
+        # Generate a random request Id in the range of [100,1000]
+        req_id = random.randint(2000, 3000)
 
 
 if __name__ == "__main__":
