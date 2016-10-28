@@ -3,7 +3,7 @@ Interactive Brokers API wrapper.
 """
 
 import time
-import datetime
+import datetime as dt
 import re
 import random
 from configparser import ConfigParser
@@ -137,7 +137,7 @@ class IBWrapper(EWrapper):
         self.hist_data_buf = []
 
     def init_tick_data(self):
-        self.end_tick_data = False
+        self.tick_data_streaming_end = False
         self.tick_data_buf = []
         self.tick_type_dict = {
             0: 'Bid Size',
@@ -145,7 +145,7 @@ class IBWrapper(EWrapper):
             2: 'Ask Price',
             3: 'Ask Size'
         }
-        
+
     # ##########################################################
     # Following virtual functions are defined/declared in IB_API
 
@@ -266,7 +266,7 @@ class IBClient(object):
 
     def req_hist_data(self, req_contract, req_endtime, req_len='1 w',
                       req_barsize='1 day', req_datatype='TRADES', useRTH=1):
-        """Wrapper of IB API EClientSocket::reqHistoricalData().
+        """Request historical data with IB API EClientSocket::reqHistoricalData().
         :param req_contract: An IB contract describing the requested security.
         :param req_endtime: endDateTime in IB API. String.
                             The end of requested time duration.
@@ -282,7 +282,7 @@ class IBClient(object):
                        available during the requested time span, or only data
                        that falls within regular trading hours.
         :returns: Historical data in a single request.
-        :rtype: A namedtuple defined in IBWrapper::historicalData().
+        :rtype: A list of namedtuples defined in this function.
         """
 
         self.cb.init_error()
@@ -313,12 +313,11 @@ class IBClient(object):
         while not (finished or iserror):
             finished = self.cb.req_hist_data_done
             iserror = self.cb.flag_iserror
-            if(time.time() - start_time) > MAX_WAIT:
+            if (time.time() - start_time) > MAX_WAIT:
                 iserror = True
-            pass
         if iserror:
             print(self.cb.error_msg)
-            raise Exception("Error requesting historic data!")
+            raise Exception("Error in requesting historic data!")
 
         # Add symbol and BarSize, and convert data to a list of namedtuples
         DataRow = namedtuple('HistDataTuple',
@@ -332,35 +331,63 @@ class IBClient(object):
 
         return hist_data
 
-    def req_mkt_data(self, contract, end_time=None, duration='1 d',
-                     tick_types=['MARK_PRICE',]):
-        """Wrapper of IB API EClientSocket::reqHistoricalData().
-        :param req_contract: An IB contract describing the requested security.
-        :param req_endtime: endDateTime in IB API. String.
-                            The end of requested time duration.
-                            Format: "yyyymmdd HH:mm:ss ttt".
-                            ttt, opt. time zone: GMT,EST,PST,MST,AST,JST,AET.
-        :param req_len: durationStr in IB API. Time duration of data.
-        :param req_barsize: barSizeSetting in IB API. String. Time resolution.
-        :param req_datatype: whatToShow in IB API. Requested data type.
-                             "TRADES","MIDPOINT","BID", "ASK","BID_ASK",
-                             "HISTORICAL_VOLATILITY",
-                             "OPTION_IMPLIED_VOLATILITY".
-        :param useRTH: Use regular trading hours. Whether to return all data
-                       available during the requested time span, or only data
-                       that falls within regular trading hours.
-        :param tick_types:
-                       https://www.interactivebrokers.com/en/software/api/apiguide/tables/generic_tick_types.htm
-                       https://www.interactivebrokers.com/en/software/api/apiguide/tables/tick_types.htm
-        :returns: Historical data in a single request.
+    def req_mkt_data(self, contract, end_time=None, duration='00:01:00:00',
+                     tick_type_names=['MARK_PRICE', ]):
+        """Request streaming data with IB API EClientSocket::reqMktData().
+        :param contract: An IB contract describing the requested security.
+        :param endtime: A specified time to cancel data streming. String.
+                        Note: if not None, it overrides next arg "duration".
+                        Format: "yyyymmdd HH:mm:ss ttt".
+                        ttt, opt. time zone: GMT,EST,PST,MST,AST,JST,AET.
+        :param duration: Time duration of streaming. String.
+                         Not effective if end_time is not None.
+        :param tick_types: A tick type string to be converted to integer ID.
+                https://www.interactivebrokers.com/en/software/api/apiguide/tables/generic_tick_types.htm
+                https://www.interactivebrokers.com/en/software/api/apiguide/tables/tick_types.htm
+        :returns: TBD.
         :rtype: A namedtuple defined in IBWrapper::historicalData().
         """
 
         self.cb.init_error()
-        self.cb.init_hist_data()
+        self.cb.init_tick_data()
+
+        # Convert arguments format, and define finished flag
+        if end_time:  # use end_time to stop streaming
+            end_dt = dt.datetime.strptime('end_time', "%Y%m%d %H:%M:%S %z")
+
+            def finished_flag(start_time):
+                return dt.datetime.now() > end_dt
+
+        else:  # use time duration to stop streaming
+            dur = [int(x) for x in duration.split(':')]
+            dur_sec = dt.timedelta(days=dur[0], seconds=dur[3], minutes=dur[2],
+                                   hours=dur[1]).total_seconds()
+
+            def finished_flag(start_time):
+                return (time.time() - start_time) > dur_sec
 
         # Generate a random request Id in the range of [100,1000]
-        req_id = random.randint(2000, 3000)
+        ticker_id = random.randint(2000, 3000)
+
+        # Request a market data stream
+        self.ec.reqMktData(ticker_id, contract, tick_type_ids, snapshot=False)
+        start_time = time.time()
+
+        # Loop to clocking the streaming
+        finished = False
+        iserror = False
+        while not (finished or iserror):
+            iserror = self.cb.flag_iserror
+            if finished_flag(start_time):
+                finished = True
+                self.cb.tick_data_streaming_end = True
+        self.tws.cancelMktData(ticker_id)
+
+        if iserror:
+            print(self.cb.error_msg)
+            raise Exception("Error in streaming market data!")
+
+        return
 
 
 if __name__ == "__main__":
