@@ -89,6 +89,29 @@ def timedur_to_IB(time_dur_str):
                         format(time_dur_str))
 
 
+def ticktype_name2id(tick_type_name):
+    ticktype_dict = {
+        'opt_vol' : 100,
+        'opt_open_int' : 101,
+        'hist_volat': 104,
+        'opt_iv': 106,
+        'idx_fut_prm': 162,
+        'mkt_price' : 221,
+        'auc_vals' : 225,
+        'rtvolume' : 233,
+        'shortable' : 236,
+        'inventory' : 256,
+        'fun_ratios' : 258,
+        'news' : 292,
+        'rt_hist_volat' : 411,
+        'div' : 456,
+    }
+
+    if not ticktype_dict.has_key(tick_type_name):
+        raise Exception("Non-defined tick type name!")
+    return ticktype_dict(tick_type_name)
+
+
 class IBWrapper(EWrapper):
     """
 
@@ -351,7 +374,7 @@ class IBClient(object):
         self.cb.init_error()
         self.cb.init_tick_data()
 
-        # Convert arguments format, and define finished flag
+        # Translate streaming stop condition, and define finished flag
         if end_time:  # use end_time to stop streaming
             end_dt = dt.datetime.strptime('end_time', "%Y%m%d %H:%M:%S %z")
 
@@ -368,6 +391,9 @@ class IBClient(object):
 
         # Generate a random request Id in the range of [100,1000]
         ticker_id = random.randint(2000, 3000)
+
+        # Convert tick type name string to tick type integer id
+        tick_type_ids = [ticktype_name2id(s) for s in tick_type_names]
 
         # Request a market data stream
         self.ec.reqMktData(ticker_id, contract, tick_type_ids, snapshot=False)
