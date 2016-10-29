@@ -107,8 +107,10 @@ def ticktype_name2id(tick_type_name):
         'div' : 456,
     }
 
-    if not ticktype_dict.has_key(tick_type_name):
-        raise Exception("Non-defined tick type name!")
+    if tick_type_name.lower() not in ticktype_dict:
+        raise Exception("Non-defined tick type name!\n"
+                        "Valid tick type names are:\n"
+                        '\n'.join(ticktype_dict.keys()))
     return ticktype_dict(tick_type_name)
 
 
@@ -355,13 +357,13 @@ class IBClient(object):
         return hist_data
 
     def req_mkt_data(self, contract, end_time=None, duration='00:01:00:00',
-                     tick_type_names=['MARK_PRICE', ]):
+                     tick_type_names=['MKT_PRICE', ]):
         """Request streaming data with IB API EClientSocket::reqMktData().
         :param contract: An IB contract describing the requested security.
         :param endtime: A specified time to cancel data streming. String.
                         Note: if not None, it overrides next arg "duration".
-                        Format: "yyyymmdd HH:mm:ss ttt".
-                        ttt, opt. time zone: GMT,EST,PST,MST,AST,JST,AET.
+                        strptime format: "%Y%m%d %H:%M:%S %z".
+                        time zone: GMT,EST,PST,MST,AST,JST,AET.
         :param duration: Time duration of streaming. String.
                          Not effective if end_time is not None.
         :param tick_types: A tick type string to be converted to integer ID.
@@ -420,11 +422,11 @@ if __name__ == "__main__":
     import sys
     from marketdata import MarketData
     IB_wrapper = IBWrapper()
-    IB_client_test = IBClient(IB_wrapper)
+    ibc = IBClient(IB_wrapper)
 
     # test 1
     if (not sys.argv[1:]) or (int(sys.argv[1]) == 1):
-        print(IB_client_test.speaking_clock())
+        print(ibc.speaking_clock())
 
     # test 2
     if (not sys.argv[1:]) or (int(sys.argv[1]) == 2):
@@ -438,12 +440,26 @@ if __name__ == "__main__":
         req_barsize = '5 min'
         req_datatype = 'TRADES'
 
-        req_contract = IB_client_test.make_contract(
+        req_contract = ibc.make_contract(
             security_type, symbol, put_call, strike, expiry)
-        hist_data_list = IB_client_test.req_hist_data(
+        hist_data_list = ibc.req_hist_data(
             req_contract, req_endtime, req_len, req_barsize, req_datatype)
         hist_data = MarketData(hist_data_list)
         print(hist_data.depot)
 
+    # test 3
+    if (not sys.argv[1:]) or (int(sys.argv[1]) == 3):
+        security_type = 'STK'
+        symbol = 'FB'
+        # put_call = 'CALL'
+        # strike = 121
+        # expiry = '20161021'
+        # endtime = '20160920 13:00:00'
+        duration = '00:00:00:15'
+        ticktype_names = ['mkt_price', ]
+
+        contract = ibc.make_contract(security_type, symbol)
+        hist_data_list = ibc.req_mkt_data(contract, duration=duration)
+
     # close connection
-    IB_client_test.ec.eDisconnect()
+    ibc.ec.eDisconnect()
