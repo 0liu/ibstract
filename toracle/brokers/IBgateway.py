@@ -1,5 +1,5 @@
 """
-Interactive Brokers API wrapper.
+Interactive Brokers API client and callbacks.
 """
 
 import time
@@ -9,33 +9,21 @@ import random
 from configparser import ConfigParser
 from collections import namedtuple, OrderedDict
 
+# Import shared utilities
+from marketdata import timedur_to_std
+
+# Import swigibpy classes
 from swigibpy import EWrapper, EPosixClientSocket
 from swigibpy import Contract as IBContract
 
-from marketdata import timedur_to_std
+# Import IB settings and constants
+from ibconfig import GATEWAY_HOST, GATEWAY_PORT
+from ibconfig import ERRORS_TO_TRIGGER, MAX_WAIT_SECONDS
+from ibconfig import REQ_TICK_TYPES, TICK_TYPES
+from ibconfig import IBInvalidReqTickTypeName
 
 
-# Max wait time
-MAX_WAIT = 5
-
-
-def read_gateway_config(configfile='IBconfig.ini'):
-    """
-    :param
-             configfile: Configuration file containing IB Gateway IP, port.
-    :return:
-             IB Gateway IP and port.
-    :note:
-             Client ID is not specified in config file, instead at IBClient
-             instantialization.
-    """
-
-    gwconfig = ConfigParser()
-    gwconfig.read(configfile)
-    gwdefault = gwconfig['DEFAULT']
-    return gwdefault['host'], int(gwdefault['port'])
-
-
+# Utlities
 def barsize_to_IB(barsize):
     """Convert bar size string to IB style and check validility.
 
@@ -90,28 +78,10 @@ def timedur_to_IB(time_dur_str):
 
 
 def ticktype_name2id(tick_type_name):
-    ticktype_dict = {
-        'opt_vol' : 100,
-        'opt_open_int' : 101,
-        'hist_volat': 104,
-        'opt_iv': 106,
-        'idx_fut_prm': 162,
-        'mkt_price' : 221,
-        'auc_vals' : 225,
-        'rtvolume' : 233,
-        'shortable' : 236,
-        'inventory' : 256,
-        'fun_ratios' : 258,
-        'news' : 292,
-        'rt_hist_volat' : 411,
-        'div' : 456,
-    }
-
-    if tick_type_name.lower() not in ticktype_dict:
-        raise Exception("Non-defined tick type name!\n"
-                        "Valid tick type names are:\n"
-                        '\n'.join(ticktype_dict.keys()))
-    return ticktype_dict(tick_type_name)
+    try:
+        return REQ_TICK_TYPES['Id'][tick_type_name.lower()]
+    except KeyError:
+        raise IBInvalidReqTickTypeName
 
 
 class IBWrapper(EWrapper):
@@ -126,21 +96,10 @@ class IBWrapper(EWrapper):
 
     def error(self, errorid, errorCode, errorString):
         """
-        error handling, simple for now
-
-        Here are some typical IB errors
-        INFO: 2107, 2106
-        WARNING 326 - can't connect as already connected
-        CRITICAL: 502, 504 can't connect to TWS.
-            200 no security definition found
-            162 no trades
-
+        Error handling.
         """
 
-        # Any errors not on this list we just treat as information
-        ERRORS_TO_TRIGGER = [201, 103, 502, 504, 509, 200, 162, 420, 2105,
-                             1100, 478, 201, 399]
-
+        # Any error not in the TRIGGER list would be treated as information
         if errorCode in ERRORS_TO_TRIGGER:
             errormsg = "IB error id %d errorcode %d string %s"\
                        % (errorid, errorCode, errorString)
@@ -164,12 +123,7 @@ class IBWrapper(EWrapper):
     def init_tick_data(self):
         self.tick_data_streaming_end = False
         self.tick_data_buf = []
-        self.tick_type_dict = {
-            0: 'Bid Size',
-            1: 'Bid Price',
-            2: 'Ask Price',
-            3: 'Ask Size'
-        }
+
 
     # ##########################################################
     # Following virtual functions are defined/declared in IB_API
@@ -186,19 +140,19 @@ class IBWrapper(EWrapper):
                                        volume, barCount, WAP, hasGaps))
 
     def tickString(self, tickerId, field, value):
-        tick_type_name = self.tick_type_dict[int(field)]
+        tick_type_name = TICK_TYPES['Name'].get(int(field), 'NotDefined')
         print("tickString():", tick_type_name, value, sep=' ')
 
     def tickGeneric(self, tickerId, tickType, value):
-        tick_type_name = self.tick_type_dict[int(tickType)]
+        tick_type_name = TICK_TYPES['Name'].get(int(tickType), 'NotDefined')
         print("tickGeneric():", tick_type_name, value, sep=' ')
 
     def tickSize(self, tickerId, tickType, size):
-        tick_type_name = self.tick_type_dict[int(tickType)]
+        tick_type_name = TICK_TYPES['Name'].get(int(tickType), 'NotDefined')
         print("tickSize():", tick_type_name, size, sep=' ')
 
     def tickPrice(self, tickerId, tickType, price, canAutoExecute):
-        tick_type_name = self.tick_type_dict[int(tickType)]
+        tick_type_name = TICK_TYPES['Name'].get(int(tickType), 'NotDefined')
         print("tickPrice():", tick_type_name, price, sep=' ')
 
     def marketDataType(self, reqId, marketDataType):
@@ -214,15 +168,13 @@ class IBWrapper(EWrapper):
 class IBClient(object):
     def __init__(self, callback, clientid=999):
         eclient = EPosixClientSocket(callback)
-        host, port = read_gateway_config()
-
-        conn_success = eclient.eConnect(host, port, clientid)
+        conn_success = eclient.eConnect(GATEWAY_HOST, GATEWAY_PORT, clientid)
         if conn_success:
             print("Successfully Connected to IB Gateway {0}:{1}."
-                  .format(host, port))
+                  .format(GATEWAY_HOST, GATEWAY_PORT))
         else:
             raise Exception("Connecting to IB Gateway {0}:{1} failed!".
-                            format(host, port))
+                            format(GATEWAY_HOST, GATEWAY_PORT))
 
         self.ec = eclient
         self.cb = callback
@@ -247,7 +199,7 @@ class IBClient(object):
             finished = self.cb.date_time_now is not None
             iserror = self.cb.flag_iserror
 
-            if (time.time() - start_time) > MAX_WAIT:
+            if (time.time() - start_time) > MAX_WAIT_SECONDS:
                 iserror = True
 
             if iserror:
@@ -338,7 +290,7 @@ class IBClient(object):
         while not (finished or iserror):
             finished = self.cb.req_hist_data_done
             iserror = self.cb.flag_iserror
-            if (time.time() - start_time) > MAX_WAIT:
+            if (time.time() - start_time) > MAX_WAIT_SECONDS:
                 iserror = True
         if iserror:
             print(self.cb.error_msg)
@@ -395,10 +347,11 @@ class IBClient(object):
         ticker_id = random.randint(2000, 3000)
 
         # Convert tick type name string to tick type integer id
-        tick_type_ids = [ticktype_name2id(s) for s in tick_type_names]
+        tick_type_ids = ','.join([str(ticktype_name2id(s)) for s in tick_type_names])
 
         # Request a market data stream
-        self.ec.reqMktData(ticker_id, contract, tick_type_ids, snapshot=False)
+        self.ec.reqMktData(ticker_id, contract, tick_type_ids, snapshot=False,
+                           mktDataOptions = None)
         start_time = time.time()
 
         # Loop to clocking the streaming
@@ -409,7 +362,7 @@ class IBClient(object):
             if finished_flag(start_time):
                 finished = True
                 self.cb.tick_data_streaming_end = True
-        self.tws.cancelMktData(ticker_id)
+        self.ec.cancelMktData(ticker_id)
 
         if iserror:
             print(self.cb.error_msg)
