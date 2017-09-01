@@ -17,6 +17,14 @@ Features
 - Account management report and performance analysis. (To do)
 
 
+Requirements
+------------
+- Python >= 3.6 (Recommend Anaconda 4.4.0)
+- pandas >= 0.20.0
+- sqlite >= 3.13
+- SQLAlchemy >= 1.1.9
+
+
 References
 ----------
 - [Rob Carver's Blog](http://qoppac.blogspot.co.uk/2017/03/interactive-brokers-native-python-api.html)
