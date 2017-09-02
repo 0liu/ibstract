@@ -383,18 +383,18 @@ if __name__ == "__main__":
 
     # test 2
     if (not sys.argv[1:]) or (int(sys.argv[1]) == 2):
-        security_type = 'OPT'
+        security_type = 'STK'
         symbol = 'FB'
-        put_call = 'CALL'
-        strike = 121
-        expiry = '20161021'
-        req_endtime = '20160920 13:00:00'
+        # put_call = 'CALL'
+        # strike = 170
+        # expiry = '20170915'
+        req_endtime = '20170831 13:00:00'
         req_len = '1 day'
         req_barsize = '5 min'
         req_datatype = 'TRADES'
 
         req_contract = ibc.make_contract(
-            security_type, symbol, put_call, strike, expiry)
+            security_type, symbol)  # , put_call, strike, expiry)
         hist_data_list = ibc.req_hist_data(
             req_contract, req_endtime, req_len, req_barsize, req_datatype)
         hist_data = MarketData(hist_data_list)
@@ -412,7 +412,9 @@ if __name__ == "__main__":
         ticktype_names = ['mkt_price', ]
 
         contract = ibc.make_contract(security_type, symbol)
-        hist_data_list = ibc.req_mkt_data(contract, duration=duration)
+        mkt_data_list = ibc.req_mkt_data(contract, duration=duration)
+        mkt_data = MarketData(mkt_data_list)
+        print(mkt_data.depot)
 
     # close connection
     ibc.ec.eDisconnect()
