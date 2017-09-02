@@ -43,7 +43,8 @@ news            292
 rt_hist_volat   411
 div             456
 """)
-REQ_TICK_TYPES = pd.read_csv(req_tick_types_csv, delim_whitespace=True, index_col=0)
+REQ_TICK_TYPES = pd.read_csv(
+    req_tick_types_csv, delim_whitespace=True, index_col=0)
 
 
 # Tick Types
@@ -107,7 +108,7 @@ Value   Name                         Function
 54      TRADE_COUNT                  tickGeneric()
 55      TRADE_RATE                   tickGeneric()
 56      VOLUME_RATE                  tickGeneric()
-""")                     
+""")
 TICK_TYPES = pd.read_csv(tick_types_csv, delim_whitespace=True, index_col=0)
 
 
@@ -117,4 +118,4 @@ class IBInvalidReqTickTypeName(Exception):
         req_tick_types_all = '  ' + '\n  '.join(REQ_TICK_TYPES.index)
         msg = "Invalid IB tick type name for requesting market data!\n" + \
               "Valid tick types names are:\n" + req_tick_types_all
-        super(IBInvalidReqTickType, self).__init__(msg)
+        super().__init__(msg)
