@@ -1,18 +1,57 @@
 """
-Interactive Brokers API settings and constants.
+Interactive Brokers API constants, settings and exceptions.
 """
+
 
 from io import StringIO
 import pandas as pd
+from datetime import timedelta
 
 
-# Gateway settings
-GATEWAY_HOST = '127.0.0.1'
-GATEWAY_PORT = 4002
+__all__ = ['IB_DEFAULT_HOST', 'IB_DEFAULT_PORT', 'IB_HIST_DATA_TYPES',
+           'IB_ERRORS', 'IB_REQ_TICK_TYPES', 'IB_TICK_TYPES',
+           'IBInvalidReqTickTypeName']
 
 
-# Time out
-MAX_WAIT_SECONDS = 5
+# --- Global settings for IB API ---
+
+# Default IB Gateway IP and port.
+IB_DEFAULT_HOST = '127.0.0.1'
+IB_DEFAULT_PORT = 4001
+
+
+# --- IB API constants ---
+
+IB_HIST_DATA_TYPES = (
+    'TRADES', 'MIDPOINT', 'BID', 'ASK', 'BID_ASK', 'ADJUSTED_LAST',
+    'HISTORICAL_VOLATILITY', 'OPTION_IMPLIED_VOLATILITY',
+    'REBATE_RATE', 'FEE_RATE',
+    'YIELD_BID', 'YIELD_ASK', 'YIELD_BID_ASK', 'YIELD_LAST',)
+
+
+IB_HIST_DATA_STEPS = {  # BarSize: MaxAllowedDuration
+    '1s': '30m',
+    '5s': '1h',
+    '10s': '4h',
+    '15s': '4h',
+    '30s': '8h',
+    '1m': '1d',
+    '2m': '2d',
+    '3m': '1W',
+    '5m': '1W',
+    '10m': '1W',
+    '15m': '1W',
+    '20m': '1W',
+    '30m': '1M',
+    '1h': '1M',
+    '2h': '1M',
+    '3h': '1M',
+    '4h': '1M',
+    '8h': '1M',
+    '1d': '1Y',
+    '1W': '1Y',
+    '1M': '1Y',
+}
 
 # Typical IB errors
 #   INFO - 2107, 2106
@@ -20,8 +59,8 @@ MAX_WAIT_SECONDS = 5
 #   CRITICAL - 502, 504: can't connect to TWS.
 #   200: no security definition found
 #   162: no trades
-ERRORS_TO_TRIGGER = [201, 103, 502, 504, 509, 200, 162, 420, 2105,
-                     1100, 478, 201, 399]
+IB_ERRORS = [201, 103, 502, 504, 509, 200, 162, 420, 2105,
+             1100, 478, 201, 399]
 
 
 # Generic tick type names and IDs to request market data
@@ -43,7 +82,7 @@ news            292
 rt_hist_volat   411
 div             456
 """)
-REQ_TICK_TYPES = pd.read_csv(
+IB_REQ_TICK_TYPES = pd.read_csv(
     req_tick_types_csv, delim_whitespace=True, index_col=0)
 
 
@@ -109,13 +148,14 @@ Value   Name                         Function
 55      TRADE_RATE                   tickGeneric()
 56      VOLUME_RATE                  tickGeneric()
 """)
-TICK_TYPES = pd.read_csv(tick_types_csv, delim_whitespace=True, index_col=0)
+IB_TICK_TYPES = pd.read_csv(tick_types_csv, delim_whitespace=True, index_col=0)
 
 
-# Exception definitions
+# --- Exception definitions ---
+
 class IBInvalidReqTickTypeName(Exception):
     def __init__(self):
-        req_tick_types_all = '  ' + '\n  '.join(REQ_TICK_TYPES.index)
-        msg = "Invalid IB tick type name for requesting market data!\n" + \
-              "Valid tick types names are:\n" + req_tick_types_all
+        req_tick_types_all = '  ' + '\n  '.join(IB_REQ_TICK_TYPES.index)
+        msg = ("Invalid IB tick type name.\n" +
+               "Valid tick types names are:\n" + req_tick_types_all)
         super().__init__(msg)
